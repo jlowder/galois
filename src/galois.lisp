@@ -19,8 +19,6 @@
            :gmul
            :geval
            :gdiv
-           :gtest
-           :times
            :rs-generator
            :rs-encode))
 
@@ -215,45 +213,6 @@
       (let ((res (mapcar #'reduce-expr (polydiv dividend divisor))))
         (values (subseq res 0 (- (length res) numsym))
                 (subseq res (- (length res) numsym)))))))
-
-(defmethod gtest ((gf gf) e)
-    (labels ((reduce-expr (e)
-               (format t "reducing: ~A~%" e)
-               (cond
-                 ((not (consp e)) e)
-                 ((equal 'times (cadr e))
-                  (if (zerop (caddr e)) 0
-                             (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n))))))
-                 ((consp (cadr e))
-                  (reduce (lambda (x y) (g+ gf x y)) (loop for n in e
-                                                        collecting (reduce-expr n) into nn
-                                                        finally (progn (format t "+ ~A~%" nn) (return nn)))))
-                 (t (g+ gf (car e) (reduce-expr (cadr e)))))))
-      (reduce-expr e)))
-
-;; >>> aa.gf_poly_div([18,52,86,00,00],[1,3,2])
-;; out[1] (0,1) = 52 ^ 3 * 18 = 2
-;; out[2] (0,2) = 86 ^ 2 * 18 = 114
-;; out[2] (1,1) = 114 ^ 3 * 2 = 116
-;; out[3] (1,2) = 0 ^ 2 * 2 = 4
-;; out[3] (2,1) = 4 ^ 3 * 116 = 152
-;; out[4] (2,2) = 0 ^ 2 * 116 = 232
-;; [18, 2, 116, 152, 232]
-
-;; >>> aa.gf_poly_div([18,52,86,77,00,00,00],[1,3,2,4])
-;; out[1] (0,1) = 52 ^ 3 * 18 = 2
-;; out[2] (0,2) = 86 ^ 2 * 18 = 114
-;; out[3] (0,3) = 77 ^ 4 * 18 = 5
-;; out[2] (1,1) = 114 ^ 3 * 2 = 116
-;; out[3] (1,2) = 5 ^ 2 * 2 = 1
-;; out[4] (1,3) = 0 ^ 4 * 2 = 8
-;; out[3] (2,1) = 1 ^ 3 * 116 = 157
-;; out[4] (2,2) = 8 ^ 2 * 116 = 224
-;; out[5] (2,3) = 0 ^ 4 * 116 = 205
-;; out[4] (3,1) = 224 ^ 3 * 157 = 90
-;; out[5] (3,2) = 205 ^ 2 * 157 = 234
-;; out[6] (3,3) = 0 ^ 4 * 157 = 78
-;; [18, 2, 116, 157, 90, 234, 78]
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Reed-Solomon functions
