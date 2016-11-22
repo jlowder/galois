@@ -3,8 +3,11 @@
 (defpackage :galois
   (:use :common-lisp)
   (:export :gf
-           :gf256
            :gf16
+           :gf64
+           :gf256
+           :gf1024
+           :gf4096
            :n
            :p
            :g+
@@ -41,12 +44,19 @@
         (+ (* mult car) (bv->num cdr (/ mult 2))))))
 
 (defun normpoly (l p)
+  "left-pad `p` with zeros to make it have at least length `l`"
   (if (>= (length p) l)
       p
       (cons 0 (normpoly (1- l) p))))
 
+(defun rightp (p1 p2)
+  "right-pad `p1` with zeros. The length of `p2` is the number of zeros to add."
+  (if (null p2)
+      p1
+      (rightp (append p1 (list 0)) (cdr p2))))
+
 (defun polyprod (p q)
-  "build the structure of the product of two arbitrary-length polynomials"
+  "build an expression tree representing the structure of two-polynomial multiplication"
   (append
    (loop for p0 in p
       collecting p0 into pp
@@ -59,6 +69,20 @@
        collect (loop for p0 in (reverse (cdr p))
                   for q1 in (reverse qq)
                   collect (cons q1 p0))))))
+
+(defun polydiv (dividend divisor)
+  "build an expression tree representing the structure of two-polynomial division"
+  (labels ((stp (coef xyz pn)
+             (cons coef
+                   (loop for p in pn
+                      for x in (reverse xyz)
+                      collect (cons x (cons 'times p))))))
+    (loop for a in dividend
+       for x in (cons nil divisor)
+       as px = nil then stps
+       collecting x into xyz
+       collecting (stp a (cdr xyz) px) into stps
+       finally (return stps))))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; CLOS definitions
@@ -71,10 +95,22 @@
 (defclass gf16 (gf)
   ((prim :accessor prim :initarg :prim :initform 19)
    (n :accessor n :initform 4)))
+
+(defclass gf64 (gf)
+  ((prim :accessor prim :initarg :prim :initform 67)
+   (n :accessor n :initform 6)))
   
 (defclass gf256 (gf)
   ((prim :accessor prim :initarg :prim :initform 285)
    (n :accessor n :initform 8)))
+
+(defclass gf1024 (gf)
+  ((prim :accessor prim :initarg :prim :initform 1033)
+   (n :accessor n :initform 10)))
+
+(defclass gf4096 (gf)
+  ((prim :accessor prim :initarg :prim :initform 4201)
+   (n :accessor n :initform 12)))
 
 (defgeneric g+ (gf x y))
 
@@ -179,23 +215,6 @@
          as r = (g* gf px base)
          finally (return r))))
 
-(defun rightp (p1 p2)
-  (if (null p2)
-      p1
-      (rightp (append p1 (list 0)) (cdr p2))))
-
-(defun polydiv (dividend divisor)
-  (labels ((stp (coef xyz pn)
-             (cons coef
-                   (loop for p in pn
-                      for x in (reverse xyz)
-                      collect (cons x (cons 'times p))))))
-    (loop for a in dividend
-       for x in (cons nil divisor)
-       as px = nil then stps
-       collecting x into xyz
-       collecting (stp a (cdr xyz) px) into stps
-       finally (return stps))))
 
 (defmethod gdiv ((gf gf) dividend divisor)
   (let* ((numsym (1- (length divisor)))
