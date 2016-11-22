@@ -21,7 +21,8 @@
            :gdiv
            :gtest
            :times
-           :rs-generator))
+           :rs-generator
+           :rs-encode))
 
 (in-package :galois)
 
@@ -197,27 +198,23 @@
        collecting x into xyz
        collecting (stp a (cdr xyz) px) into stps
        finally (return stps))))
-                 
+
 (defmethod gdiv ((gf gf) dividend divisor)
-  (let* ((dividend (rightp dividend (cdr divisor)))
+  (let* ((numsym (1- (length divisor)))
+         (dividend (rightp dividend (cdr divisor)))
          (divisor (rightp (cdr divisor) dividend)))
-    (format t "dividend: ~A~%" dividend)
-    (format t "divisor: ~A~%" divisor)
     (labels ((reduce-expr (e)
-               (format t "reduce: ~A~%" e)
                (cond
                  ((not (consp e)) e)
                  ((equal 'times (cadr e))
-                  (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n)))))
+                  (if (zerop (caddr e)) 0
+                      (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n))))))
                  ((consp (cadr e))
-                  (reduce (lambda (x y) (g+ gf x y)) (loop for n in e
-                                                        collecting (reduce-expr n) into nn
-                                                        finally (progn (format t "+ ~A~%" nn) (return nn)))))
+                  (reduce (lambda (x y) (g+ gf x y)) (loop for n in e collect (reduce-expr n))))
                  (t (g+ gf (car e) (reduce-expr (cadr e)))))))
-      (loop for x in (polydiv dividend divisor)
-           as gg = (format t "gg=~A~%" x)
-         do (format t "red=~A~%" (reduce-expr x)))
-      (mapcar #'reduce-expr (polydiv dividend divisor)))))
+      (let ((res (mapcar #'reduce-expr (polydiv dividend divisor))))
+        (values (subseq res 0 (- (length res) numsym))
+                (subseq res (- (length res) numsym)))))))
 
 (defmethod gtest ((gf gf) e)
     (labels ((reduce-expr (e)
@@ -225,24 +222,14 @@
                (cond
                  ((not (consp e)) e)
                  ((equal 'times (cadr e))
-                  (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n)))))
+                  (if (zerop (caddr e)) 0
+                             (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n))))))
                  ((consp (cadr e))
                   (reduce (lambda (x y) (g+ gf x y)) (loop for n in e
                                                         collecting (reduce-expr n) into nn
                                                         finally (progn (format t "+ ~A~%" nn) (return nn)))))
                  (t (g+ gf (car e) (reduce-expr (cadr e)))))))
       (reduce-expr e)))
-
-
-;; def gf_poly_div(dividend, divisor):
-;;    msg_out = list(dividend) # Copy the dividend list and pad with 0 where the ecc bytes will be computed
-;;    for i in range(0, len(dividend) - (len(divisor)-1)):
-;;        coef = msg_out[i] # precaching
-;;        if coef != 0: # log(0) is undefined, so we need to avoid that case explicitly (and it's also a good optimization).
-;;            for j in range(1, len(divisor)): # in synthetic division, we always skip the first coefficient of the divisior,
-;;                if divisor[j] != 0: # log(0) is undefined
-;;                     msg_out[i + j] ^= gf_mul(divisor[j], coef) # equivalent to the more mathematically correct
-;;
 
 ;; >>> aa.gf_poly_div([18,52,86,00,00],[1,3,2])
 ;; out[1] (0,1) = 52 ^ 3 * 18 = 2
@@ -267,7 +254,6 @@
 ;; out[5] (3,2) = 205 ^ 2 * 157 = 234
 ;; out[6] (3,3) = 0 ^ 4 * 157 = 78
 ;; [18, 2, 116, 157, 90, 234, 78]
-             
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Reed-Solomon functions
@@ -279,3 +265,6 @@
      as g = (gmul gf pg (list 1 (g^ gf 2 i)))
      finally (return g)))
 
+(defun rs-encode (gf m n)
+  (multiple-value-bind (p q) (gdiv gf m (rs-generator gf n))
+    (append m q)))
