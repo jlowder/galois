@@ -29,11 +29,11 @@
 
 ;; todo:
 ;;   *. make gdiv evaluate each element before proceeding to the next. This should make it run a lot faster.
-;;   2. make gdiv and gmul both use the same type of expression tree
-;;   3. make one expression tree evaluator that is used for both gmul and gdiv
+;;   *. make gdiv and gmul both use the same type of expression tree
+;;   *. make one expression tree evaluator that is used for both gmul and gdiv
 ;;   4. find a better implementation of g/ (currently brute force)
 ;;   5. implement reed-solomon decoding
-;;   6. more options for generator polynomials, to allow other first consective roots
+;;   6. more options for generator polynomials, to allow other first consecutive roots
 ;;   7. implement more ccsds features, e.g. dual basis and virtual fill
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -187,14 +187,18 @@
                  (cons (g+ gf (car p) (car q)) (p+q (cdr p) (cdr q))))))
       (p+q p q))))
 
+(defun evaluate (gf e)
+  "evaluate a sum of products"
+  (loop for x in e
+     as pr = 0 then r
+     as r = (g+ gf pr (g* gf (car x) (cdr x)))
+     finally (return r)))
+
 (defmethod gmul ((gf gf) p q)
     (loop for prodsum in (if (> (length p) (length q))
                              (polyprod p q)
                              (polyprod q p))
-       collect (loop for x in prodsum
-                  as pr = 0 then r
-                  as r = (g+ gf pr (g* gf (car x) (cdr x)))
-                  finally (return r))))
+       collect (evaluate gf prodsum)))
 
 (defmethod geval((gf gf) p x)
   (loop for z in (cdr p)
@@ -221,32 +225,21 @@
                    (if (> (length l) numdat)
                        (subseq l 0 numdat)
                        l)))
-             (reduce-expr (e)
-               (cond
-                 ((not (consp e)) e)
-                 ((equal 'times (cadr e))
-                  (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n)))))
-                 ((consp (cadr e))
-                  (reduce (lambda (x y) (g+ gf x y)) (loop for n in e collect (reduce-expr n))))
-                 (t (g+ gf (car e) (reduce-expr (cadr e))))))
              (polydiv (dividend divisor)
                "build an expression tree representing the structure of two-polynomial division"
                (labels ((stp (coef xyz pn)
                           (let ((xyz (trim (reverse xyz))))
-                            ;; (format t "~A~%" (cons coef (loop for p in pn
-                            ;;                                for x in xyz
-                            ;;                                collect (cons x (cons 'times p)))))
-                            (cons coef
+                            (cons (cons 1 coef)
                                   (loop for p in pn
                                      for x in xyz
-                                     collect (cons x (cons 'times p)))))))
+                                     collect (cons x p))))))
                  (loop for a in dividend
                     for x in (cons nil divisor)
                     as px = nil then stps
                     collecting x into xyz
-                    collecting (list (reduce-expr (stp a (cdr xyz) px))) into stps
+                    collecting (evaluate gf (stp a (cdr xyz) px)) into stps
                     finally (return stps)))))
-      (let ((res (mapcar #'car (polydiv dividend divisor))))
+      (let ((res (polydiv dividend divisor)))
         (values (subseq res 0 (- (length res) numsym))
                 (subseq res (- (length res) numsym)))))))
 
