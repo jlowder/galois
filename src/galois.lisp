@@ -27,6 +27,15 @@
 
 (in-package :galois)
 
+;; todo:
+;;   *. make gdiv evaluate each element before proceeding to the next. This should make it run a lot faster.
+;;   2. make gdiv and gmul both use the same type of expression tree
+;;   3. make one expression tree evaluator that is used for both gmul and gdiv
+;;   4. find a better implementation of g/ (currently brute force)
+;;   5. implement reed-solomon decoding
+;;   6. more options for generator polynomials, to allow other first consective roots
+;;   7. implement more ccsds features, e.g. dual basis and virtual fill
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; internal functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -70,20 +79,6 @@
                   for q1 in (reverse qq)
                   collect (cons q1 p0))))))
 
-(defun polydiv (dividend divisor)
-  "build an expression tree representing the structure of two-polynomial division"
-  (labels ((stp (coef xyz pn)
-             (cons coef
-                   (loop for p in pn
-                      for x in (reverse xyz)
-                      collect (cons x (cons 'times p))))))
-    (loop for a in dividend
-       for x in (cons nil divisor)
-       as px = nil then stps
-       collecting x into xyz
-       collecting (stp a (cdr xyz) px) into stps
-       finally (return stps))))
-  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; CLOS definitions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -196,10 +191,10 @@
     (loop for prodsum in (if (> (length p) (length q))
                              (polyprod p q)
                              (polyprod q p))
-     collect (loop for x in prodsum
-                as pr = 0 then r
-                as r = (g+ gf pr (g* gf (car x) (cdr x)))
-                finally (return r))))
+       collect (loop for x in prodsum
+                  as pr = 0 then r
+                  as r = (g+ gf pr (g* gf (car x) (cdr x)))
+                  finally (return r))))
 
 (defmethod geval((gf gf) p x)
   (loop for z in (cdr p)
@@ -215,21 +210,43 @@
          as r = (g* gf px base)
          finally (return r))))
 
-
 (defmethod gdiv ((gf gf) dividend divisor)
   (let* ((numsym (1- (length divisor)))
+         (numdat (length dividend))
          (dividend (rightp dividend (cdr divisor)))
          (divisor (rightp (cdr divisor) dividend)))
-    (labels ((reduce-expr (e)
+    (labels ((trim (l)
+               (if (null l)
+                   '()
+                   (if (> (length l) numdat)
+                       (subseq l 0 numdat)
+                       l)))
+             (reduce-expr (e)
                (cond
                  ((not (consp e)) e)
                  ((equal 'times (cadr e))
-                  (if (zerop (caddr e)) 0
-                      (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n))))))
+                  (g* gf (car e) (reduce (lambda (x y) (g+ gf x y)) (loop for n in (cddr e) collect (reduce-expr n)))))
                  ((consp (cadr e))
                   (reduce (lambda (x y) (g+ gf x y)) (loop for n in e collect (reduce-expr n))))
-                 (t (g+ gf (car e) (reduce-expr (cadr e)))))))
-      (let ((res (mapcar #'reduce-expr (polydiv dividend divisor))))
+                 (t (g+ gf (car e) (reduce-expr (cadr e))))))
+             (polydiv (dividend divisor)
+               "build an expression tree representing the structure of two-polynomial division"
+               (labels ((stp (coef xyz pn)
+                          (let ((xyz (trim (reverse xyz))))
+                            ;; (format t "~A~%" (cons coef (loop for p in pn
+                            ;;                                for x in xyz
+                            ;;                                collect (cons x (cons 'times p)))))
+                            (cons coef
+                                  (loop for p in pn
+                                     for x in xyz
+                                     collect (cons x (cons 'times p)))))))
+                 (loop for a in dividend
+                    for x in (cons nil divisor)
+                    as px = nil then stps
+                    collecting x into xyz
+                    collecting (list (reduce-expr (stp a (cdr xyz) px))) into stps
+                    finally (return stps)))))
+      (let ((res (mapcar #'car (polydiv dividend divisor))))
         (values (subseq res 0 (- (length res) numsym))
                 (subseq res (- (length res) numsym)))))))
 
@@ -246,3 +263,7 @@
 (defun rs-encode (gf m n)
   (multiple-value-bind (p q) (gdiv gf m (rs-generator gf n))
     (append m q)))
+
+;; test cases
+;; [18,52,86,00,00],[1,3,2] -> [18, 2, 116, 152, 232]
+;; [18,52,86,77,00,00,00],[1,3,2,4] -> [18, 2, 116, 157, 90, 234, 78]
